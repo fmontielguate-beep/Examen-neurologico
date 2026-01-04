@@ -32,26 +32,38 @@ const App: React.FC = () => {
     setLoading(true);
     setFeedback(null);
     
-    if (activeCase) {
-      if (test.id === activeCase.correctTestId) {
-        setFeedback("✅ ¡Deducción correcta!");
-      } else {
-        setFeedback("❌ Considera otra vía anatómica.");
+    try {
+      if (activeCase) {
+        if (test.id === activeCase.correctTestId) {
+          setFeedback("✅ ¡Deducción correcta!");
+        } else {
+          setFeedback("❌ Considera otra vía anatómica.");
+        }
       }
-    }
 
-    const result = await analyzeClinicalFinding(test.name, test.region, test.type);
-    setAnalysis(result);
-    setLoading(false);
+      const result = await analyzeClinicalFinding(test.name, test.region, test.type);
+      setAnalysis(result);
+    } catch (error) {
+      console.error("Error en test selection:", error);
+      setFeedback("⚠️ Error en la conexión con el modelo.");
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleSearch = async (query: string) => {
     setLoading(true);
     setFeedback(null);
     setSelectedRegion(null);
-    const result = await searchClinicalKnowledge(query);
-    setAnalysis(result);
-    setLoading(false);
+    try {
+      const result = await searchClinicalKnowledge(query);
+      setAnalysis(result);
+    } catch (error) {
+      console.error("Error en búsqueda:", error);
+      setFeedback("⚠️ No se pudo completar la búsqueda.");
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleCaseSelection = (c: ClinicalCase | null) => {
@@ -165,59 +177,61 @@ const App: React.FC = () => {
           </div>
 
           {selectedRegion && (
-            <div className="absolute inset-0 z-50 flex items-center justify-center p-10">
+            <div className="absolute inset-0 z-50 flex items-center justify-center p-4 md:p-10">
               <div 
                 className="absolute inset-0 bg-slate-950/80 backdrop-blur-xl animate-in fade-in duration-500"
                 onClick={() => setSelectedRegion(null)}
               ></div>
               
-              <div className="relative w-full max-w-2xl bg-slate-900 border border-white/10 rounded-[4rem] shadow-[0_50px_100px_rgba(0,0,0,0.8)] p-12 animate-in zoom-in-95 duration-300">
-                <div className="flex items-center justify-between mb-10">
+              <div className="relative w-full max-w-2xl bg-slate-900 border border-white/10 rounded-[3rem] md:rounded-[4rem] shadow-[0_50px_100px_rgba(0,0,0,0.8)] overflow-hidden flex flex-col max-h-[90vh] animate-in zoom-in-95 duration-300">
+                <div className="flex items-center justify-between p-8 md:p-12 pb-6 md:pb-8 shrink-0">
                   <div className="space-y-1">
-                    <h3 className="text-3xl font-black text-white tracking-tighter italic uppercase">
+                    <h3 className="text-2xl md:text-3xl font-black text-white tracking-tighter italic uppercase">
                       Protocolo de <span className="text-cyan-400">{selectedRegion}</span>
                     </h3>
                     <p className="text-[10px] text-slate-500 font-black tracking-[0.4em] uppercase">Selecciona el examen a realizar</p>
                   </div>
                   <button 
                     onClick={() => setSelectedRegion(null)}
-                    className="p-4 hover:bg-white/10 rounded-full transition-all text-slate-400 hover:text-white"
+                    className="p-3 hover:bg-white/10 rounded-full transition-all text-slate-400 hover:text-white"
                   >
                     <svg className="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M6 18L18 6M6 6l12 12" /></svg>
                   </button>
                 </div>
 
-                <div className="grid grid-cols-2 gap-6">
-                  {availableTests.length > 0 ? (
-                    availableTests.map((test) => (
-                      <button
-                        key={test.id}
-                        onClick={() => handleTestSelection(test)}
-                        className="p-8 bg-slate-800 hover:bg-cyan-600 border border-white/5 hover:border-cyan-300 rounded-[2.5rem] transition-all duration-300 group/btn shadow-2xl flex flex-col items-start gap-4 text-left"
-                      >
-                        <div className="p-3 bg-white/5 rounded-2xl group-hover/btn:bg-white/20 transition-colors">
-                          <svg className="w-6 h-6 text-cyan-400 group-hover/btn:text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                          </svg>
-                        </div>
-                        <div>
-                          <span className="block text-lg font-black text-white tracking-tight group-hover/btn:translate-x-1 transition-transform">{test.name}</span>
-                          <span className="text-[10px] text-cyan-500 font-black uppercase tracking-widest group-hover/btn:text-cyan-100">{test.type}</span>
-                        </div>
-                      </button>
-                    ))
-                  ) : (
-                    <div className="col-span-2 py-20 text-center space-y-4">
-                      <div className="text-6xl">🔍</div>
-                      <p className="text-slate-500 font-bold uppercase tracking-widest italic">No se encontraron protocolos específicos para esta región.</p>
-                      <button 
-                        onClick={() => setSelectedRegion(null)}
-                        className="px-6 py-2 bg-slate-800 text-xs font-black rounded-xl hover:bg-slate-700"
-                      >
-                        Cerrar Buscador
-                      </button>
-                    </div>
-                  )}
+                <div className="flex-1 overflow-y-auto custom-scrollbar px-8 md:px-12 pb-12">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
+                    {availableTests.length > 0 ? (
+                      availableTests.map((test) => (
+                        <button
+                          key={test.id}
+                          onClick={() => handleTestSelection(test)}
+                          className="p-6 md:p-8 bg-slate-800 hover:bg-cyan-600 border border-white/5 hover:border-cyan-300 rounded-[2rem] md:rounded-[2.5rem] transition-all duration-300 group/btn shadow-2xl flex flex-col items-start gap-4 text-left"
+                        >
+                          <div className="p-3 bg-white/5 rounded-2xl group-hover/btn:bg-white/20 transition-colors">
+                            <svg className="w-6 h-6 text-cyan-400 group-hover/btn:text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            </svg>
+                          </div>
+                          <div>
+                            <span className="block text-base md:text-lg font-black text-white tracking-tight group-hover/btn:translate-x-1 transition-transform">{test.name}</span>
+                            <span className="text-[10px] text-cyan-500 font-black uppercase tracking-widest group-hover/btn:text-cyan-100">{test.type}</span>
+                          </div>
+                        </button>
+                      ))
+                    ) : (
+                      <div className="col-span-1 md:col-span-2 py-20 text-center space-y-4">
+                        <div className="text-6xl">🔍</div>
+                        <p className="text-slate-500 font-bold uppercase tracking-widest italic">No se encontraron protocolos específicos.</p>
+                        <button 
+                          onClick={() => setSelectedRegion(null)}
+                          className="px-6 py-2 bg-slate-800 text-xs font-black rounded-xl hover:bg-slate-700"
+                        >
+                          Cerrar Buscador
+                        </button>
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
             </div>

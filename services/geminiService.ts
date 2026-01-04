@@ -14,6 +14,10 @@ const SYSTEM_INSTRUCTION = `
 `;
 
 export const analyzeClinicalFinding = async (testName: string, region: string, type: string): Promise<AnalysisResponse> => {
+  if (!process.env.API_KEY) {
+    return { content: "### ⚠️ Error de Configuración\nLa API Key no ha sido detectada en el entorno de Vercel. Por favor, configúrala en el Dashboard del proyecto.", sources: [] };
+  }
+
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   
   const prompt = `
@@ -30,6 +34,10 @@ export const analyzeClinicalFinding = async (testName: string, region: string, t
 };
 
 export const searchClinicalKnowledge = async (query: string): Promise<AnalysisResponse> => {
+  if (!process.env.API_KEY) {
+    return { content: "### ⚠️ Error de Configuración\nAPI Key faltante.", sources: [] };
+  }
+
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   
   const prompt = `
@@ -41,6 +49,8 @@ export const searchClinicalKnowledge = async (query: string): Promise<AnalysisRe
 };
 
 export const getStructureDeepDive = async (structureName: string): Promise<StructureInfo> => {
+  if (!process.env.API_KEY) throw new Error("API Key missing");
+  
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   
   const response = await ai.models.generateContent({
@@ -76,7 +86,7 @@ async function queryGemini(ai: any, prompt: string): Promise<AnalysisResponse> {
       },
     });
 
-    const text = response.text || "Error en el sistema experto.";
+    const text = response.text || "Error en el sistema experto: Respuesta vacía.";
     const sources = response.candidates?.[0]?.groundingMetadata?.groundingChunks
       ?.map((chunk: any) => ({
         title: chunk.web?.title || "Fuente Médica",
@@ -85,8 +95,12 @@ async function queryGemini(ai: any, prompt: string): Promise<AnalysisResponse> {
       .filter((s: GroundingSource) => s.uri !== "") || [];
 
     return { content: text, sources };
-  } catch (error) {
-    console.error(error);
-    return { content: "Error de conexión con el Atlas Digital.", sources: [] };
+  } catch (error: any) {
+    console.error("Gemini API Error:", error);
+    let errorMessage = "Error de conexión con el Atlas Digital.";
+    if (error.message?.includes('API_KEY_INVALID')) {
+      errorMessage = "### ❌ Error: API Key Inválida\nLa clave configurada no es correcta o ha expirado.";
+    }
+    return { content: errorMessage, sources: [] };
   }
 }
