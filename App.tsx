@@ -1,5 +1,5 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { AnatomicalLayer, ClinicalTest, ClinicalCase, AnalysisResponse } from './types';
 import { CLINICAL_TESTS } from './constants';
 import { analyzeClinicalFinding, searchClinicalKnowledge } from './services/geminiService';
@@ -15,8 +15,39 @@ const App: React.FC = () => {
   const [analysis, setAnalysis] = useState<AnalysisResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [feedback, setFeedback] = useState<string | null>(null);
+  const [hasKey, setHasKey] = useState<boolean>(!!process.env.API_KEY);
 
-  const availableTests = CLINICAL_TESTS.filter(test => test.region === selectedRegion);
+  // Verificar la llave al montar y cuando cambie el foco (por si se configuró en otra pestaña)
+  const checkKeyStatus = useCallback(async () => {
+    if (window.aistudio && typeof window.aistudio.hasSelectedApiKey === 'function') {
+      const selected = await window.aistudio.hasSelectedApiKey();
+      setHasKey(selected || !!process.env.API_KEY);
+    } else {
+      setHasKey(!!process.env.API_KEY);
+    }
+  }, []);
+
+  useEffect(() => {
+    checkKeyStatus();
+    window.addEventListener('focus', checkKeyStatus);
+    return () => window.removeEventListener('focus', checkKeyStatus);
+  }, [checkKeyStatus]);
+
+  const handleOpenConfig = async () => {
+    if (window.aistudio && typeof window.aistudio.openSelectKey === 'function') {
+      try {
+        await window.aistudio.openSelectKey();
+        // Asumimos éxito tras abrir el diálogo según guías de AI Studio
+        setHasKey(true);
+      } catch (e) {
+        console.error("Error al abrir selector de llaves:", e);
+      }
+    } else {
+      // Instrucción clara para Vercel
+      window.open('https://vercel.com/docs/projects/environment-variables', '_blank');
+      alert("Para despliegues en Vercel:\n1. Ve a tu Dashboard de Vercel.\n2. Settings > Environment Variables.\n3. Añade 'API_KEY' con tu valor de Google AI Studio.\n4. Redeploy para aplicar cambios.");
+    }
+  };
 
   const resetToHome = () => {
     setSelectedRegion(null);
@@ -25,10 +56,18 @@ const App: React.FC = () => {
     setAnalysis(null);
     setFeedback(null);
     setActiveLayer(AnatomicalLayer.Skin);
+    setLoading(false);
   };
 
   const handleTestSelection = async (test: ClinicalTest) => {
+    // IMPORTANTE: Asegurar que el modal se cierre inmediatamente
     setSelectedRegion(null); 
+    
+    if (!hasKey && !process.env.API_KEY) {
+      setFeedback("⚠️ Se requiere una API Key configurada.");
+      return;
+    }
+
     setLoading(true);
     setFeedback(null);
     
@@ -37,7 +76,7 @@ const App: React.FC = () => {
         if (test.id === activeCase.correctTestId) {
           setFeedback("✅ ¡Deducción correcta!");
         } else {
-          setFeedback("❌ Considera otra vía anatómica.");
+          setFeedback("❌ Hallazgo incompatible con el caso.");
         }
       }
 
@@ -45,13 +84,19 @@ const App: React.FC = () => {
       setAnalysis(result);
     } catch (error) {
       console.error("Error en test selection:", error);
-      setFeedback("⚠️ Error en la conexión con el modelo.");
+      setFeedback("⚠️ Error de comunicación con el motor neuronal.");
     } finally {
+      // GARANTÍA: Siempre desactivar loading para evitar el "bucle" visual
       setLoading(false);
     }
   };
 
   const handleSearch = async (query: string) => {
+    if (!hasKey && !process.env.API_KEY) {
+      setFeedback("⚠️ API Key no configurada.");
+      return;
+    }
+
     setLoading(true);
     setFeedback(null);
     setSelectedRegion(null);
@@ -60,18 +105,56 @@ const App: React.FC = () => {
       setAnalysis(result);
     } catch (error) {
       console.error("Error en búsqueda:", error);
-      setFeedback("⚠️ No se pudo completar la búsqueda.");
+      setFeedback("⚠️ No se pudo procesar la consulta.");
     } finally {
       setLoading(false);
     }
   };
 
   const handleCaseSelection = (c: ClinicalCase | null) => {
+    // Cerramos cualquier modal abierto al cambiar de contexto
+    setSelectedRegion(null);
     setActiveCase(c);
     setAnalysis(null);
     setFeedback(null);
-    setSelectedRegion(null);
+    setLoading(false);
   };
+
+  // Pantalla de guardia para falta de API KEY
+  if (!hasKey && !process.env.API_KEY) {
+    return (
+      <div className="h-screen w-full bg-slate-950 flex items-center justify-center p-6 text-center">
+        <div className="max-w-md space-y-8 animate-in fade-in zoom-in duration-700">
+          <div className="w-24 h-24 bg-rose-500/20 rounded-3xl flex items-center justify-center border-2 border-rose-500/30 mx-auto shadow-[0_0_60px_rgba(244,63,94,0.3)]">
+            <svg className="w-12 h-12 text-rose-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+            </svg>
+          </div>
+          <div className="space-y-4">
+            <h1 className="text-3xl font-black text-white tracking-tighter italic">FALLO DE <span className="text-rose-500">SINAPSIS DIGITAL</span></h1>
+            <p className="text-slate-400 text-sm leading-relaxed font-medium">
+              El atlas requiere una <span className="text-white font-bold">API KEY</span> de Google para funcionar. Si estás usando Vercel, debes configurarla en las variables de entorno del proyecto.
+            </p>
+          </div>
+          <div className="flex flex-col gap-3">
+            <button 
+              onClick={handleOpenConfig}
+              className="w-full py-4 bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-black rounded-2xl transition-all shadow-[0_20px_40px_rgba(34,211,238,0.3)] active:scale-95 uppercase tracking-widest text-xs"
+            >
+              Configurar Acceso (Vercel / AI Studio)
+            </button>
+            <div className="pt-4 border-t border-white/5">
+               <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest leading-relaxed">
+                ¿Primera vez? Crea tu llave en <a href="https://aistudio.google.com/app/apikey" target="_blank" className="text-cyan-500 underline">Google AI Studio</a> y añádela como <code className="bg-slate-900 px-1 py-0.5 rounded text-rose-400">API_KEY</code> en Vercel.
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  const availableTests = CLINICAL_TESTS.filter(test => test.region === selectedRegion);
 
   return (
     <div className="flex h-screen w-full bg-slate-950 overflow-hidden font-sans text-slate-100 selection:bg-cyan-500/30">
@@ -100,6 +183,7 @@ const App: React.FC = () => {
       </aside>
 
       <main className="flex-1 flex flex-col min-w-0 bg-[#020617] relative">
+        {/* Luces de fondo decorativas */}
         <div className="absolute top-[-20%] right-[-10%] w-[60%] h-[60%] bg-indigo-600/10 blur-[150px] rounded-full"></div>
         <div className="absolute bottom-[-20%] left-[-10%] w-[50%] h-[50%] bg-cyan-600/10 blur-[150px] rounded-full"></div>
 
@@ -113,20 +197,20 @@ const App: React.FC = () => {
                 <svg className="w-4 h-4 group-hover:-translate-x-1 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
                 </svg>
-                Inicio
+                Volver
               </button>
             )}
             
             <div className="flex flex-col">
               {activeCase ? (
                 <div className="flex items-center gap-4">
-                  <div className="px-3 py-1 rounded-full bg-emerald-500/20 text-[10px] font-black text-emerald-400 border border-emerald-500/30 uppercase tracking-[0.2em]">Paciente Crítico</div>
+                  <div className="px-3 py-1 rounded-full bg-rose-500/20 text-[10px] font-black text-rose-400 border border-rose-500/30 uppercase tracking-[0.2em]">Caso Clínico</div>
                   <h2 className="text-xl font-black text-white tracking-tight">{activeCase.title}</h2>
                 </div>
               ) : (
                 <div className="flex items-center gap-4">
-                  <div className="px-3 py-1 rounded-full bg-cyan-500/20 text-[10px] font-black text-cyan-400 border border-cyan-500/30 uppercase tracking-[0.2em]">Análisis Bio-Funcional</div>
-                  <h2 className="text-xl font-black text-white tracking-tight">Estación de Mapeo</h2>
+                  <div className="px-3 py-1 rounded-full bg-cyan-500/20 text-[10px] font-black text-cyan-400 border border-cyan-500/30 uppercase tracking-[0.2em]">Exploración Libre</div>
+                  <h2 className="text-xl font-black text-white tracking-tight">Estación de Diagnóstico</h2>
                 </div>
               )}
             </div>
@@ -145,7 +229,7 @@ const App: React.FC = () => {
               <div className="bg-slate-900/80 backdrop-blur-2xl p-6 rounded-[2.5rem] border border-white/10 shadow-2xl animate-in slide-in-from-left-12 duration-700">
                 <div className="flex items-center gap-3 mb-3">
                   <div className="w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_10px_rgba(52,211,153,0.8)]"></div>
-                  <h3 className="text-[10px] font-black text-emerald-400 uppercase tracking-[0.3em]">Cuadro Clínico</h3>
+                  <h3 className="text-[10px] font-black text-emerald-400 uppercase tracking-[0.3em]">Presentación</h3>
                 </div>
                 <p className="text-sm text-slate-200 leading-relaxed font-semibold italic">
                   "{activeCase.patientProfile}"
@@ -176,59 +260,53 @@ const App: React.FC = () => {
             />
           </div>
 
+          {/* Modal de selección de pruebas con scroll corregido */}
           {selectedRegion && (
             <div className="absolute inset-0 z-50 flex items-center justify-center p-4 md:p-10">
               <div 
-                className="absolute inset-0 bg-slate-950/80 backdrop-blur-xl animate-in fade-in duration-500"
+                className="absolute inset-0 bg-slate-950/90 backdrop-blur-md animate-in fade-in duration-300"
                 onClick={() => setSelectedRegion(null)}
               ></div>
               
-              <div className="relative w-full max-w-2xl bg-slate-900 border border-white/10 rounded-[3rem] md:rounded-[4rem] shadow-[0_50px_100px_rgba(0,0,0,0.8)] overflow-hidden flex flex-col max-h-[90vh] animate-in zoom-in-95 duration-300">
-                <div className="flex items-center justify-between p-8 md:p-12 pb-6 md:pb-8 shrink-0">
+              <div className="relative w-full max-w-2xl bg-slate-900 border border-white/10 rounded-[3rem] shadow-[0_50px_100px_rgba(0,0,0,0.8)] overflow-hidden flex flex-col max-h-[85vh] animate-in zoom-in-95 duration-200">
+                <div className="flex items-center justify-between p-8 pb-4 shrink-0 border-b border-white/5">
                   <div className="space-y-1">
-                    <h3 className="text-2xl md:text-3xl font-black text-white tracking-tighter italic uppercase">
-                      Protocolo de <span className="text-cyan-400">{selectedRegion}</span>
+                    <h3 className="text-2xl font-black text-white tracking-tighter italic uppercase">
+                      Protocolo: <span className="text-cyan-400">{selectedRegion}</span>
                     </h3>
-                    <p className="text-[10px] text-slate-500 font-black tracking-[0.4em] uppercase">Selecciona el examen a realizar</p>
+                    <p className="text-[10px] text-slate-500 font-black tracking-[0.4em] uppercase">Selecciona el examen físico</p>
                   </div>
                   <button 
                     onClick={() => setSelectedRegion(null)}
                     className="p-3 hover:bg-white/10 rounded-full transition-all text-slate-400 hover:text-white"
                   >
-                    <svg className="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M6 18L18 6M6 6l12 12" /></svg>
+                    <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M6 18L18 6M6 6l12 12" /></svg>
                   </button>
                 </div>
 
-                <div className="flex-1 overflow-y-auto custom-scrollbar px-8 md:px-12 pb-12">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
+                <div className="flex-1 overflow-y-auto custom-scrollbar p-8">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     {availableTests.length > 0 ? (
                       availableTests.map((test) => (
                         <button
                           key={test.id}
                           onClick={() => handleTestSelection(test)}
-                          className="p-6 md:p-8 bg-slate-800 hover:bg-cyan-600 border border-white/5 hover:border-cyan-300 rounded-[2rem] md:rounded-[2.5rem] transition-all duration-300 group/btn shadow-2xl flex flex-col items-start gap-4 text-left"
+                          className="p-6 bg-slate-800 hover:bg-cyan-600 border border-white/5 hover:border-cyan-300 rounded-[2rem] transition-all duration-300 group/btn shadow-xl flex flex-col items-start gap-3 text-left"
                         >
                           <div className="p-3 bg-white/5 rounded-2xl group-hover/btn:bg-white/20 transition-colors">
-                            <svg className="w-6 h-6 text-cyan-400 group-hover/btn:text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            <svg className="w-5 h-5 text-cyan-400 group-hover/btn:text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 12l2 2 4-4" />
                             </svg>
                           </div>
                           <div>
-                            <span className="block text-base md:text-lg font-black text-white tracking-tight group-hover/btn:translate-x-1 transition-transform">{test.name}</span>
+                            <span className="block text-base font-black text-white tracking-tight group-hover/btn:translate-x-1 transition-transform">{test.name}</span>
                             <span className="text-[10px] text-cyan-500 font-black uppercase tracking-widest group-hover/btn:text-cyan-100">{test.type}</span>
                           </div>
                         </button>
                       ))
                     ) : (
-                      <div className="col-span-1 md:col-span-2 py-20 text-center space-y-4">
-                        <div className="text-6xl">🔍</div>
-                        <p className="text-slate-500 font-bold uppercase tracking-widest italic">No se encontraron protocolos específicos.</p>
-                        <button 
-                          onClick={() => setSelectedRegion(null)}
-                          className="px-6 py-2 bg-slate-800 text-xs font-black rounded-xl hover:bg-slate-700"
-                        >
-                          Cerrar Buscador
-                        </button>
+                      <div className="col-span-full py-12 text-center">
+                        <p className="text-slate-500 font-bold uppercase tracking-widest">No hay protocolos para esta región.</p>
                       </div>
                     )}
                   </div>
